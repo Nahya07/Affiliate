@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Multi-View Monitor v2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Base Styles */
+        body { background-color: #0f172a; color: #e2e8f0; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+        
+        /* Iframe & Aspect Ratios */
+        .iframe-wrapper { position: relative; width: 100%; overflow: hidden; background: #000; border-radius: 0.5rem; }
+        .ratio-9-16 { padding-bottom: 177.77%; } /* Vertical / HP */
+        .ratio-16-9 { padding-bottom: 56.25%; }  /* Horizontal / PC */
+        .ratio-1-1 { padding-bottom: 100%; }     /* Square */
+        
+        iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+        
+        /* Utility */
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .loading-overlay { position: absolute; inset: 0; display: flex; justify-content: center; align-items: center; background: #1e293b; z-index: 5; }
+        
+        /* Animations */
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .spinner { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- Top Control Bar -->
+    <header class="glass-panel z-50 p-3 shadow-xl">
+        <div class="max-w-7xl mx-auto flex flex-col gap-3">
+            
+            <!-- Top Row: Logo & Quick Stats -->
+            <div class="flex justify-between items-center">
+                <div class="flex items-center gap-2">
+                    <div class="bg-blue-600 p-1.5 rounded text-white"><i class="fa-solid fa-layer-group"></i></div>
+                    <h1 class="font-bold text-lg tracking-tight">MasterView <span class="text-blue-500 text-xs uppercase px-1 border border-blue-500 rounded ml-1">v2.0</span></h1>
+                </div>
+                <div class="flex items-center gap-3 text-xs text-gray-400 font-mono bg-gray-800 px-3 py-1 rounded-full">
+                    <span><i class="fa-solid fa-desktop mr-1"></i> <span id="activeCount">0</span> Layar</span>
+                    <span class="text-gray-600">|</span>
+                    <span><i class="fa-solid fa-clock mr-1"></i> <span id="timerDisplay">OFF</span></span>
+                </div>
+            </div>
+
+            <!-- Middle Row: Input & Actions -->
+            <div class="flex flex-col md:flex-row gap-2">
+                <div class="flex-1 relative group">
+                    <textarea id="urlInput" rows="1" class="w-full bg-gray-800 text-sm border border-gray-600 rounded-lg pl-3 pr-10 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none resize-none overflow-hidden group-hover:bg-gray-750 transition" placeholder="Tempel Link Video (Shopee/YouTube/TikTok) di sini..."></textarea>
+                    <div class="absolute right-2 top-2 text-gray-500 text-xs"><i class="fa-solid fa-link"></i></div>
+                </div>
+                
+                <div class="flex gap-2 shrink-0">
+                    <select id="ratioSelect" class="bg-gray-800 text-xs border border-gray-600 rounded px-2 text-gray-300 focus:outline-none">
+                        <option value="ratio-9-16">📱 HP (9:16)</option>
+                        <option value="ratio-16-9">💻 PC (16:9)</option>
+                        <option value="ratio-1-1">⏹️ Kotak (1:1)</option>
+                    </select>
+                    
+                    <button onclick="addScreens()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded-lg text-sm font-semibold transition shadow-lg shadow-blue-900/20">
+                        <i class="fa-solid fa-plus mr-1"></i> Tambah
+                    </button>
+                </div>
+            </div>
+
+            <!-- Bottom Row: Toggles -->
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-400">
+                <label class="flex items-center gap-2 cursor-pointer hover:text-white transition">
+                    <input type="checkbox" id="muteCheck" checked class="accent-blue-500">
+                    <span>Force Mute (Wajib utk Autoplay)</span>
+                </label>
+                
+                <label class="flex items-center gap-2 cursor-pointer hover:text-white transition" title="Centang ini jika video Shopee tidak muncul">
+                    <input type="checkbox" id="sandboxCheck" class="accent-red-500">
+                    <span class="text-red-400 font-medium">Lepas Sandbox (Jika Error)</span>
+                </label>
+
+                <div class="flex items-center gap-2 ml-auto">
+                    <span class="uppercase font-bold text-[10px] tracking-wider">Grid:</span>
+                    <input type="range" id="colRange" min="1" max="8" value="4" class="w-20 accent-blue-500" oninput="updateGrid()">
+                </div>
+                
+                <div class="flex items-center gap-1 border-l border-gray-700 pl-3">
+                    <button onclick="toggleAutoReload()" id="btnAutoReload" class="p-1.5 rounded hover:bg-gray-700 text-gray-400 transition" title="Auto Reload">
+                        <i class="fa-solid fa-rotate"></i>
+                    </button>
+                    <button onclick="clearAll()" class="p-1.5 rounded hover:bg-red-900/30 text-red-400 transition" title="Hapus Semua">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                    <button onclick="addTestVideo()" class="p-1.5 rounded hover:bg-green-900/30 text-green-400 transition" title="Test Video (YouTube)">
+                        <i class="fa-solid fa-vial"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Grid Area -->
+    <main class="flex-1 overflow-y-auto p-4 relative bg-gray-900">
+        <!-- Grid Container -->
+        <div id="gridContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pb-20">
+            <!-- Items injected here -->
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="absolute inset-0 flex flex-col items-center justify-center text-gray-600 pointer-events-none">
+            <div class="bg-gray-800/50 p-8 rounded-2xl border border-gray-700/50 backdrop-blur text-center max-w-md mx-4">
+                <i class="fa-solid fa-tv text-5xl mb-4 text-gray-700"></i>
+                <h2 class="text-xl font-bold text-gray-300">Siap Menampilkan Video</h2>
+                <p class="text-sm mt-2 text-gray-500">Masukkan link di atas. Gunakan satu baris per link untuk input massal.</p>
+                <div class="mt-4 text-xs bg-red-900/20 text-red-400 p-2 rounded border border-red-900/30 text-left">
+                    <strong>⚠️ PENTING:</strong><br>
+                    Jika layar putih, artinya <strong>Shopee/TikTok memblokir akses</strong>. Ini adalah kebijakan keamanan mereka (X-Frame-Options) yang tidak bisa ditembus oleh website manapun.
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // State
+        let screenId = 0;
+        let reloadInterval = null;
+        
+        // Elements
+        const grid = document.getElementById('gridContainer');
+        const emptyState = document.getElementById('emptyState');
+        const colRange = document.getElementById('colRange');
+        
+        // Initialization
+        updateGrid();
+
+        // 1. Core Functions
+        function addScreens() {
+            const input = document.getElementById('urlInput');
+            const urls = input.value.split(/[\n,]/).map(u => u.trim()).filter(u => u);
+            const ratio = document.getElementById('ratioSelect').value;
+            const isMuted = document.getElementById('muteCheck').checked;
+            const noSandbox = document.getElementById('sandboxCheck').checked;
+
+            if (!urls.length) return alert('Masukkan setidaknya satu link!');
+
+            emptyState.style.opacity = '0';
+            
+            urls.forEach(url => {
+                const finalUrl = processUrl(url, isMuted);
+                createFrame(finalUrl, ratio, noSandbox);
+            });
+
+            input.value = '';
+            updateStats();
+        }
+
+        function createFrame(url, ratioClass, noSandbox) {
+            screenId++;
+            const div = document.createElement('div');
+            div.id = `screen-${screenId}`;
+            div.className = 'relative group bg-gray-800 rounded-lg overflow-hidden border border-gray-700 hover:border-blue-500 transition-colors shadow-lg';
+            
+            // Sandbox Attribute Logic
+            // strict: allow-scripts allow-same-origin (Standard)
+            // loose: (No sandbox attribute) - Gives iframe full power, but risky and some sites block it more.
+            const sandboxAttr = noSandbox ? '' : 'sandbox="allow-scripts allow-same-origin allow-popups allow-forms"';
+
+            div.innerHTML = `
+                <!-- Controls Overlay -->
+                <div class="absolute top-0 right-0 z-20 p-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                    <button onclick="reloadOne(${screenId})" class="bg-black/60 hover:bg-blue-600 text-white p-1.5 rounded text-xs backdrop-blur">
+                        <i class="fa-solid fa-rotate"></i>
+                    </button>
+                    <button onclick="closeOne(${screenId})" class="bg-black/60 hover:bg-red-600 text-white p-1.5 rounded text-xs backdrop-blur">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <!-- Status Overlay (Hidden on load) -->
+                <div class="absolute bottom-0 left-0 right-0 bg-black/80 text-[10px] px-2 py-1 text-gray-400 z-20 truncate">
+                    ID: ${screenId} | <span class="text-blue-400">${new URL(url).hostname}</span>
+                </div>
+
+                <!-- Iframe Wrapper -->
+                <div class="iframe-wrapper ${ratioClass}">
+                    <iframe 
+                        id="iframe-${screenId}"
+                        src="${url}" 
+                        ${sandboxAttr}
+                        loading="lazy"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                        allowfullscreen
+                        referrerpolicy="no-referrer">
+                    </iframe>
+                </div>
+            `;
+            
+            grid.appendChild(div);
+        }
+
+        // 2. URL Processor (The most critical part)
+        function processUrl(url, mute) {
+            let cleanUrl = url;
+
+            // YOUTUBE: Convert watch -> embed
+            if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                let vidId = '';
+                if (url.includes('watch?v=')) vidId = url.split('watch?v=')[1].split('&')[0];
+                else if (url.includes('youtu.be/')) vidId = url.split('youtu.be/')[1].split('?')[0];
+                else if (url.includes('/embed/')) vidId = url.split('/embed/')[1].split('?')[0];
+                
+                if (vidId) {
+                    const muteParam = mute ? 'mute=1' : '';
+                    cleanUrl = `https://www.youtube.com/embed/${vidId}?autoplay=1&${muteParam}&loop=1&playlist=${vidId}`;
+                }
+            }
+            
+            // SHOPEE VIDEO: Very Tricky. 
+            // Most links are share links (https://id.shp.ee/...) which redirect.
+            // Embedding redirect links often fails.
+            // There is no public "embed" endpoint for Shopee.
+            // We assume user provides link, but we strip tracking params.
+            else if (url.includes('shp.ee') || url.includes('shopee')) {
+                // We can't do much here except ensure HTTPS
+                // Shopee mostly BLOCKS iframes via X-Frame-Options: DENY
+            }
+
+            return cleanUrl;
+        }
+
+        // 3. Grid & Layout
+        function updateGrid() {
+            const cols = colRange.value;
+            // Tailwind doesn't support dynamic arbitrary values easily in CDN mode without style injection
+            grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+        }
+
+        // 4. Management
+        function closeOne(id) {
+            const el = document.getElementById(`screen-${id}`);
+            if (el) el.remove();
+            updateStats();
+            if (!grid.children.length) emptyState.style.opacity = '1';
+        }
+
+        function reloadOne(id) {
+            const iframe = document.getElementById(`iframe-${id}`);
+            if (iframe) {
+                const src = iframe.src;
+                iframe.src = 'about:blank';
+                setTimeout(() => iframe.src = src, 200);
+            }
+        }
+
+        function clearAll() {
+            if (confirm("Hapus semua layar?")) {
+                grid.innerHTML = '';
+                emptyState.style.opacity = '1';
+                updateStats();
+            }
+        }
+
+        function addTestVideo() {
+            // A known working YouTube Short for testing grid
+            const testUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"; // Rick Roll ensures we know it works :)
+            document.getElementById('urlInput').value = testUrl;
+            document.getElementById('ratioSelect').value = 'ratio-16-9';
+            addScreens();
+        }
+
+        function updateStats() {
+            document.getElementById('activeCount').innerText = grid.children.length;
+        }
+
+        // 5. Auto Reload System
+        function toggleAutoReload() {
+            const btn = document.getElementById('btnAutoReload');
+            const display = document.getElementById('timerDisplay');
+            
+            if (reloadInterval) {
+                clearInterval(reloadInterval);
+                reloadInterval = null;
+                btn.classList.remove('bg-green-600', 'text-white');
+                btn.classList.add('text-gray-400');
+                display.innerText = "OFF";
+                display.classList.remove('text-green-400');
+            } else {
+                const seconds = prompt("Masukkan interval refresh (detik):", "60");
+                if (seconds && !isNaN(seconds) && seconds > 5) {
+                    btn.classList.add('bg-green-600', 'text-white');
+                    btn.classList.remove('text-gray-400');
+                    display.classList.add('text-green-400');
+                    
+                    let timeLeft = seconds;
+                    display.innerText = timeLeft + "s";
+
+                    reloadInterval = setInterval(() => {
+                        timeLeft--;
+                        display.innerText = timeLeft + "s";
+                        
+                        if (timeLeft <= 0) {
+                            timeLeft = seconds; // Reset timer
+                            // Refresh all iframes
+                            document.querySelectorAll('iframe').forEach(ifr => {
+                                const s = ifr.src;
+                                ifr.src = s;
+                            });
+                        }
+                    }, 1000);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
+
+
